@@ -1,57 +1,15 @@
-from PIL import Image
+# ============================================================
+# APP PRINCIPAL DE LA ATS ANEIAP - VERSIÓN FLASK
+# ============================================================
+
+from flask import Flask, render_template, request, send_file, redirect, url_for, jsonify
 import os
-import google.generativeai as genai
-import base64
-import fitz
-import requests
-import numpy as np
-import spacy
-import pandas as pd
-from collections import Counter
-from io import BytesIO
-from textstat import textstat
-import re
-import json
-import pytesseract
-from spellchecker import SpellChecker
-from textblob import TextBlob
-from reportlab.pdfgen import canvas
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageTemplate, Frame, Image, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import Image as RLImage  
-from reportlab.lib.enums import TA_JUSTIFY
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import ImageReader
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.platypus.flowables import PageBreak
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
-import statsmodels.api as sm
-from PIL import Image, ImageFilter, ImageOps, ImageEnhance
-from flask import Flask, request, jsonify, send_file
-from utils import (
-    extract_text_with_ocr,
-    extract_cleaned_lines,
-    calculate_similarity,
-    calculate_keyword_match_percentage,
-    draw_full_page_cover,
-    add_background
-)
-from cv_analysis import (
-    extract_experience_section_with_ocr,
-    extract_profile_section_with_ocr,
-    calculate_indicators_for_report,
-    evaluate_cv_presentation
-)
+import tempfile
+from datetime import datetime
 
 # ============================================================
-# IMPORTS DE MÓDULOS INTERNOS (DESDE app/utils/)
+# IMPORTS DE MÓDULOS INTERNOS
 # ============================================================
-
 from utils.ocr import extract_text_with_ocr
 from utils.extractors import (
     extract_profile_section_with_ocr,
@@ -60,49 +18,140 @@ from utils.extractors import (
     extract_attendance_section_with_ocr
 )
 from utils.indicators import calculate_all_indicators, calculate_indicators_for_report
-from utils.report_generator import generate_pdf_report
+from utils.report_generator import analyze_and_generate_descriptive_report
 from utils.evaluation import evaluate_cv_presentation
 from utils.analysis import generate_extended_analysis
 from utils.helpers import load_json, clean_text, extract_candidate_data
 
+# ============================================================
+# CONFIGURACIÓN DE LA APLICACIÓN FLASK
+# ============================================================
+
 app = Flask(__name__)
+app.config["UPLOAD_FOLDER"] = "uploads"
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-# Cargar JSONs
-with open("indicators.json", encoding="utf-8") as f:
-    indicators = json.load(f)
+# ============================================================
+# RUTA PRINCIPAL (FORMULARIO)
+# ============================================================
 
-with open("advice.json", encoding="utf-8") as f:
-    advice = json.load(f)
+@app.route("/", methods=["GET"])
+def home():
+    return render_template("index.html")  # formulario principal
 
-@app.route("/analizar", methods=["POST"])
-def analizar():
-    nombre = request.form["nombre"]
-    capitulo = request.form["capitulo"]
-    cargo = request.form["cargo"]
-    pdf = request.files["pdf"]
 
-    # --- Extraer texto del PDF ---
-    texto = ""
-    with fitz.open(stream=pdf.read(), filetype="pdf") as doc:
-        for page in doc:
-            texto += page.get_text()
+# ============================================================
+# RUTA DE ANÁLISIS (PROCESA EL PDF Y GENERA EL REPORTE)
+# ============================================================
 
-    # --- Obtener palabras clave ---
-    palabras = indicators.get(cargo, [])
-    coincidencias = sum(1 for p in palabras if p.lower() in texto.lower())
-    porcentaje = round((coincidencias / len(palabras)) * 100, 2) if palabras else 0
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    try:
+        # ------------------------------
+        # 1️⃣  Capturar datos del formulario
+        # ------------------------------
+        candidate_name = request.form.get("candidate_name")
+        chapter = request.form.get("chapter")
+        position = request.form.get("position")
+        pdf_file = request.files.get("pdf")
 
-    consejo = advice.get(cargo, "Sin consejo disponible.")
+        if not all([candidate_name, chapter, position, pdf_file]):
+            return jsonify({"error": "Faltan campos obligatorios."}), 400
 
-    return jsonify({
-        "nombre": nombre,
-        "capitulo": capitulo,
-        "cargo": cargo,
-        "afinidad": f"{porcentaje}%",
-        "coincidencias": coincidencias,
-        "total_palabras": len(palabras),
-        "consejo": consejo
-    })
+        # ------------------------------
+        # 2️⃣  Guardar archivo temporalmente
+        # ------------------------------
+        temp_dir = tempfile.mkdtemp()
+        pdf_path = os.path.join(temp_dir, pdf_file.filename)
+        pdf_file.save(pdf_path)
+
+        # ------------------------------
+        # 3️⃣  Extraer texto del PDF
+        # ------------------------------
+        extracted_text = extract_text_with_ocr(pdf_path)
+        clean_extracted_text = clean_text(extracted_text)
+
+        # ------------------------------
+        # 4️⃣  Extraer secciones específicas
+        # ------------------------------
+        profile_text = extract_profile_section_with_ocr(clean_extracted_text)
+        experience_text = extract_experience_section_with_ocr(clean_extracted_text)
+        event_text = extract_event_section_with_ocr(clean_extracted_text)
+        attendance_text = extract_attendance_section_with_ocr(clean_extracted_text)
+
+        # ------------------------------
+        # 5️⃣  Calcular indicadores
+        # ------------------------------
+        indicators_results = calculate_all_indicators(
+            {
+                "Perfil": profile_text,
+                "Experiencia": experience_text,
+                "Eventos": event_text,
+                "Asistencia": attendance_text,
+            },
+            position,
+            chapter
+        )
+
+        indicator_percentages = calculate_indicators_for_report(indicators_results)
+
+        # ------------------------------
+        # 6️⃣  Evaluar presentación del CV
+        # ------------------------------
+        presentation_scores = evaluate_cv_presentation(clean_extracted_text)
+
+        # ------------------------------
+        # 7️⃣  Generar análisis extendido
+        # ------------------------------
+        extended_analysis = generate_extended_analysis(
+            indicators_results, profile_text, experience_text
+        )
+
+        # ------------------------------
+        # 8️⃣  Generar reporte PDF
+        # ------------------------------
+        output_filename = f"Reporte_{candidate_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        output_path = os.path.join(app.config["UPLOAD_FOLDER"], output_filename)
+
+        analyze_and_generate_descriptive_report(
+            candidate_name=candidate_name,
+            position=position,
+            chapter=chapter,
+            pdf_path=pdf_path,
+            indicator_percentages=indicator_percentages,
+            presentation_scores=presentation_scores,
+            extended_analysis=extended_analysis,
+            output_path=output_path
+        )
+
+        # ------------------------------
+        # 9️⃣  Retornar éxito y enlace de descarga
+        # ------------------------------
+        return render_template("result.html",
+                               candidate_name=candidate_name,
+                               position=position,
+                               chapter=chapter,
+                               report_path=url_for("download", filename=output_filename))
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================
+# RUTA DE DESCARGA DEL REPORTE
+# ============================================================
+
+@app.route("/download/<filename>")
+def download(filename):
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if os.path.exists(file_path):
+        return send_file(file_path, as_attachment=True)
+    return jsonify({"error": "Archivo no encontrado."}), 404
+
+
+# ============================================================
+# INICIO DEL SERVIDOR LOCAL
+# ============================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
