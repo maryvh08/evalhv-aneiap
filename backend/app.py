@@ -48,8 +48,6 @@ from cv_analysis import (
     evaluate_cv_presentation
 )
 
-app = Flask(__name__)
-
 # ============================================================
 # IMPORTS DE MÓDULOS INTERNOS (DESDE app/utils/)
 # ============================================================
@@ -66,6 +64,8 @@ from utils.report_generator import generate_pdf_report
 from utils.evaluation import evaluate_cv_presentation
 from utils.analysis import generate_extended_analysis
 from utils.helpers import load_json, clean_text, extract_candidate_data
+
+app = Flask(__name__)
 
 # Cargar JSONs
 with open("indicators.json", encoding="utf-8") as f:
