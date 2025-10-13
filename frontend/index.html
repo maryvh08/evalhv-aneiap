@@ -1,40 +1,33 @@
-<!doctype html>
-<html>
-<head><meta charset="utf-8"><title>EvalHV ANEIAP</title></head>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Evaluador HV ANEIAP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
 <body>
-  <h1>Evaluador HV ANEIAP</h1>
-  <input id="name" placeholder="Nombre completo"><br>
-  <select id="chapter"> ... opciones ... </select><br>
-  <select id="position"> ... opciones ... </select><br>
-  <input type="file" id="pdffile" accept="application/pdf"><br>
-  <button id="send">Enviar</button>
-  <script>
-    const API = "https://tu-backend.onrender.com/analyze"; // URL del servicio
-    document.getElementById('send').onclick = async () => {
-      const file = document.getElementById('pdffile').files[0];
-      if(!file) return alert("Sube PDF");
-      const fd = new FormData();
-      fd.append("candidate_name", document.getElementById('name').value);
-      fd.append("chapter", document.getElementById('chapter').value);
-      fd.append("position", document.getElementById('position').value);
-      fd.append("file", file);
+  <div class="container">
+    <h1>📊 Evaluador de Hojas de Vida ANEIAP</h1>
 
-      const resp = await fetch(API, { method: 'POST', body: fd });
-      if(!resp.ok) {
-        const err = await resp.json();
-        return alert("Error: " + (err.error || resp.statusText));
-      }
-      // si devuelve PDF directamente
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = "reporte.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }
-  </script>
+    <form id="uploadForm">
+      <label>Nombre del aspirante:</label>
+      <input type="text" id="nombre" required>
+
+      <label>Capítulo:</label>
+      <input type="text" id="capitulo" required>
+
+      <label>Cargo al que aspira:</label>
+      <input type="text" id="cargo" required>
+
+      <label>Sube tu hoja de vida (PDF):</label>
+      <input type="file" id="pdf" accept="application/pdf" required>
+
+      <button type="submit">Analizar</button>
+    </form>
+
+    <div id="result"></div>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
-
