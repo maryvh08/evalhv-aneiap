@@ -1,0 +1,272 @@
+# ============================================================
+# analyze_and_generate_descriptive_report_with_background.py
+# ============================================================
+
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+import os
+import re
+from spellchecker import SpellChecker
+import fitz
+import textstat
+
+from utils.ocr import extract_text_with_ocr
+from utils.extractors import (
+    extract_profile_section_with_details,
+    extract_experience_items_with_details,
+    extract_event_items_with_details,
+    extract_asistencia_items_with_details
+)
+from utils.indicators import calculate_all_indicators
+from utils.report_generator import add_background
+from utils.helpers import clean_text, load_json
+
+
+def analyze_and_generate_descriptive_report_with_background(
+    pdf_path: str,
+    candidate_name: str,
+    position: str,
+    chapter: str,
+    background_path: str,
+    output_path: str
+):
+    """
+    Analiza una hoja de vida ANEIAP en formato descriptivo, evalúa la presentación, genera métricas
+    e interpreta resultados creando un reporte PDF con fondo y conclusiones detalladas.
+    """
+
+    # ============================================================
+    # 1️⃣ Extracción de texto y secciones
+    # ============================================================
+
+    experience_items = extract_experience_items_with_details(pdf_path)
+    event_items = extract_event_items_with_details(pdf_path)
+    asistencia_items = extract_asistencia_items_with_details(pdf_path)
+    profile_text = extract_profile_section_with_details(pdf_path)
+
+    # ============================================================
+    # 2️⃣ Evaluación de presentación (ortografía, coherencia, gramática)
+    # ============================================================
+
+    text = extract_text_with_ocr(pdf_path)
+    spell = SpellChecker(language="es")
+
+    def evaluate_spelling(text):
+        if not text:
+            return 100
+        words = text.split()
+        if not words:
+            return 100
+        misspelled = spell.unknown(words)
+        return round(((len(words) - len(misspelled)) / len(words)) * 100, 2)
+
+    def evaluate_capitalization(text):
+        sentences = re.split(r"[.!?]\s*", text.strip())
+        sentences = [s for s in sentences if s]
+        if not sentences:
+            return 100
+        correct_caps = sum(1 for s in sentences if s[0].isupper())
+        return (correct_caps / len(sentences)) * 100
+
+    def evaluate_sentence_coherence(text):
+        try:
+            return max(0, min(100, 100 - textstat.flesch_kincaid_grade(text) * 10))
+        except Exception:
+            return 50
+
+    spelling_score = evaluate_spelling(text)
+    capitalization_score = evaluate_capitalization(text)
+    coherence_score = evaluate_sentence_coherence(text)
+    overall_score = (spelling_score + capitalization_score + coherence_score) / 3
+
+    # Redondeo a escala 1-5
+    round_spelling_score = round(spelling_score / 20, 2)
+    round_capitalization_score = round(capitalization_score / 20, 2)
+    round_coherence_score = round(coherence_score / 20, 2)
+    round_overall_score = round(overall_score / 20, 2)
+
+    # ============================================================
+    # 3️⃣ Cálculo de indicadores y concordancia
+    # ============================================================
+
+    indicator_percentages = calculate_all_indicators(chapter, position, experience_items, profile_text)
+
+    # Evaluaciones por sección (escala 1-5)
+    exp_score = round(indicator_percentages.get("Experiencia en ANEIAP", 80) / 20, 2)
+    att_score = round(indicator_percentages.get("Asistencia a Eventos", 80) / 20, 2)
+    org_score = round(indicator_percentages.get("Eventos Organizados", 80) / 20, 2)
+    prof_score = round(indicator_percentages.get("Perfil", 80) / 20, 2)
+
+    # Simulaciones de concordancia global (perfil y funciones)
+    global_func_match = indicator_percentages.get("Funciones del Cargo", 75)
+    global_profile_match = indicator_percentages.get("Perfil del Cargo", 78)
+    global_func_score = round(global_func_match / 20, 2)
+    global_profile_score = round(global_profile_match / 20, 2)
+
+    # ============================================================
+    # 4️⃣ Configuración del PDF y estilos
+    # ============================================================
+
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    elements = []
+
+    styles = {
+        'CenturyGothic': ParagraphStyle(
+            'CenturyGothic',
+            fontName='Helvetica',
+            fontSize=10,
+            leading=14
+        ),
+        'CenturyGothicBold': ParagraphStyle(
+            'CenturyGothicBold',
+            fontName='Helvetica-Bold',
+            fontSize=10,
+            leading=14
+        )
+    }
+
+    # ============================================================
+    # 5️⃣ Consejos automáticos según presentación
+    # ============================================================
+
+    elements.append(Paragraph("<b>Consejos para Mejorar la Presentación:</b>", styles['CenturyGothicBold']))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Coherencia ---
+    if round_coherence_score < 3:
+        msg = "• La coherencia de las frases necesita atención. Asegúrate de conectar las ideas claramente y evitar frases fragmentadas."
+    elif 3 <= round_coherence_score <= 4:
+        msg = "• La coherencia es aceptable, pero hay margen de mejora. Revisa las transiciones entre ideas para lograr un flujo más natural."
+    else:
+        msg = "• La coherencia de las frases es excelente. Sigue organizando las ideas de manera clara y lógica."
+    elements.append(Paragraph(msg, styles['CenturyGothic']))
+
+    # --- Ortografía ---
+    if round_spelling_score < 3:
+        msg = "• Revisa cuidadosamente la ortografía. Utiliza herramientas como correctores automáticos para identificar y corregir errores."
+    elif 3 <= round_spelling_score <= 4:
+        msg = "• La ortografía es buena, pero se pueden corregir errores menores. Dedica tiempo a revisar cada palabra detenidamente."
+    else:
+        msg = "• La ortografía es impecable. Sigue prestando atención a los detalles en tus documentos."
+    elements.append(Paragraph(msg, styles['CenturyGothic']))
+
+    # --- Gramática / Mayúsculas ---
+    if round_capitalization_score < 3:
+        msg = "• El uso de mayúsculas y la gramática necesitan mejoras. Asegúrate de que los nombres propios y los títulos estén correctamente capitalizados."
+    elif 3 <= round_capitalization_score <= 4:
+        msg = "• El uso de mayúsculas es correcto, pero puede perfeccionarse. Revisa los títulos y encabezados para asegurarte de que sean consistentes."
+    else:
+        msg = "• El uso de mayúsculas es excelente. Mantén este nivel de precisión en la gramática y los detalles del documento."
+    elements.append(Paragraph(msg, styles['CenturyGothic']))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # ============================================================
+    # 6️⃣ Tabla de indicadores
+    # ============================================================
+
+    elements.append(Paragraph("<b>Resultados de Indicadores:</b>", styles['CenturyGothicBold']))
+    elements.append(Spacer(1, 0.1 * inch))
+    table_data = [["Indicador", "Concordancia (%)"]]
+    for ind, val in indicator_percentages.items():
+        if isinstance(val, (int, float)):
+            table_data.append([Paragraph(ind, styles['CenturyGothic']), f"{val:.2f}%"])
+
+    t = Table(table_data, colWidths=[4 * inch, 2 * inch])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#F0F0F0")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # ============================================================
+    # 7️⃣ Resultados globales
+    # ============================================================
+
+    global_data = [
+        ["Criterio", "Funciones del Cargo", "Perfil del Cargo"],
+        ["Concordancia Global", f"{global_func_match:.2f}%", f"{global_profile_match:.2f}%"],
+        ["Puntaje Global", f"{global_func_score:.2f}", f"{global_profile_score:.2f}"]
+    ]
+
+    global_table = Table(global_data, colWidths=[3 * inch, 2 * inch, 2 * inch])
+    global_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#F0F0F0")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+    ]))
+    elements.append(Paragraph("<b>Resultados Globales:</b>", styles['CenturyGothicBold']))
+    elements.append(global_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # ============================================================
+    # 8️⃣ Interpretación de resultados
+    # ============================================================
+
+    if global_profile_match > 75 and global_func_match > 75:
+        interpretation = f"Alta Concordancia (> 75%): {candidate_name} tiene una excelente adecuación con las funciones del cargo de {position}..."
+    elif 60 < global_profile_match <= 75 or 60 < global_func_match <= 75:
+        interpretation = f"Buena Concordancia (> 60%): {candidate_name} muestra buena correspondencia con el cargo de {position}, aunque hay áreas de mejora..."
+    else:
+        interpretation = f"Baja Concordancia (< 60%): {candidate_name} presenta una baja coincidencia con las competencias esperadas para el cargo de {position}..."
+
+    elements.append(Paragraph("<b>Interpretación de Resultados:</b>", styles['CenturyGothicBold']))
+    elements.append(Paragraph(interpretation, styles['CenturyGothic']))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # ============================================================
+    # 9️⃣ Tabla de puntajes totales
+    # ============================================================
+
+    total_score = (exp_score + att_score + org_score + round_overall_score + prof_score) / 5
+    total_data = [
+        ["Criterio", "Puntaje"],
+        ["Experiencia en ANEIAP", f"{exp_score:.2f}"],
+        ["Asistencia a eventos", f"{att_score:.2f}"],
+        ["Eventos organizados", f"{org_score:.2f}"],
+        ["Perfil", f"{prof_score:.2f}"],
+        ["Presentación", f"{round_overall_score:.2f}"],
+        ["Puntaje Total", f"{total_score:.2f}"]
+    ]
+
+    total_table = Table(total_data, colWidths=[3 * inch, 2 * inch])
+    total_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#F0F0F0")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+    ]))
+    elements.append(Paragraph("<b>Puntajes Totales:</b>", styles['CenturyGothicBold']))
+    elements.append(total_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # ============================================================
+    # 🔟 Conclusión y agradecimiento
+    # ============================================================
+
+    conclusion = (
+        f"Este análisis es generado para garantizar que los candidatos estén bien preparados para el rol de {position}. "
+        f"Los aspirantes con alta concordancia deben ser considerados seriamente para el cargo, mientras que aquellos con buena o baja concordancia "
+        f"deben continuar desarrollando su experiencia o recibir orientación para mejorar su perfil profesional."
+    )
+    elements.append(Paragraph(conclusion, styles['CenturyGothic']))
+    elements.append(Spacer(1, 0.2 * inch))
+    elements.append(Paragraph(
+        f"Gracias, {candidate_name}, por tu interés en el cargo de {position}. ¡Éxitos en tu proceso!",
+        styles['CenturyGothic']
+    ))
+
+    # ============================================================
+    # 11️⃣ Generación del PDF
+    # ============================================================
+
+    def on_later_pages(canvas, doc):
+        add_background(canvas, background_path)
+
+    doc.build(elements, onLaterPages=on_later_pages)
+
+    return output_path
