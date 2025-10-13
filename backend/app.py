@@ -33,6 +33,14 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from PIL import Image, ImageFilter, ImageOps, ImageEnhance
 from flask import Flask, request, jsonify, send_file
+from utils import (
+    extract_text_with_ocr,
+    extract_cleaned_lines,
+    calculate_similarity,
+    calculate_keyword_match_percentage,
+    draw_full_page_cover,
+    add_background
+)
 
 app = Flask(__name__)
 
