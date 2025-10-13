@@ -41,6 +41,11 @@ from utils import (
     draw_full_page_cover,
     add_background
 )
+from utils.simplified_analysis import (
+    extract_experience_section_with_ocr,
+    calculate_all_indicators,
+    calculate_indicators_for_report,
+)
 
 app = Flask(__name__)
 
