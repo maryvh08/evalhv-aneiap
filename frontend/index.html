@@ -2,32 +2,24 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Evaluador HV ANEIAP</title>
-  <link rel="stylesheet" href="style.css">
+  <title>ATS ANEIAP</title>
 </head>
 <body>
-  <div class="container">
-    <h1>📊 Evaluador de Hojas de Vida ANEIAP</h1>
+  <h2>Evaluación de Hoja de Vida ANEIAP</h2>
+  <form action="/analyze" method="post" enctype="multipart/form-data">
+    <label>Nombre del aspirante:</label><br>
+    <input type="text" name="candidate_name" required><br><br>
 
-    <form id="uploadForm">
-      <label>Nombre del aspirante:</label>
-      <input type="text" id="nombre" required>
+    <label>Capítulo:</label><br>
+    <input type="text" name="chapter" required><br><br>
 
-      <label>Capítulo:</label>
-      <input type="text" id="capitulo" required>
+    <label>Cargo al que aspira:</label><br>
+    <input type="text" name="position" required><br><br>
 
-      <label>Cargo al que aspira:</label>
-      <input type="text" id="cargo" required>
+    <label>Subir Hoja de Vida (PDF):</label><br>
+    <input type="file" name="pdf" accept=".pdf" required><br><br>
 
-      <label>Sube tu hoja de vida (PDF):</label>
-      <input type="file" id="pdf" accept="application/pdf" required>
-
-      <button type="submit">Analizar</button>
-    </form>
-
-    <div id="result"></div>
-  </div>
-
-  <script src="script.js"></script>
+    <button type="submit">Analizar Hoja de Vida</button>
+  </form>
 </body>
 </html>
