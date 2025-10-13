@@ -1,226 +1,186 @@
+import io
 import re
-from pathlib import Path
-from pdf2image import convert_from_path
+import fitz  # PyMuPDF
 import pytesseract
-from PyPDF2 import PdfReader
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.utils import ImageReader
 
 
-# ========= UTILIDAD GENERAL PARA OCR Y EXTRACCIÓN ==========
+# ============================================================
+# 🔹 PREPROCESAMIENTO DE IMÁGENES PARA OCR
+# ============================================================
+def preprocess_image(image):
+    """
+    Preprocesa una imagen antes de aplicar OCR.
+    Mejora contraste, elimina ruido y convierte a blanco y negro.
+    """
+    image = image.convert("L")  # Escala de grises
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(2.0)  # Mejora contraste
+    image = ImageOps.autocontrast(image)
+    return image
+
+
+# ============================================================
+# 🔹 EXTRACCIÓN DE TEXTO DESDE PDF (OCR + TEXTO EMBEBIDO)
+# ============================================================
 def extract_text_with_ocr(pdf_path):
     """
-    Extrae texto de un PDF combinando extracción directa y OCR.
+    Extrae texto de un PDF utilizando PyMuPDF y OCR si es necesario.
     """
-    text = ""
+    extracted_text = []
 
-    # 1️⃣ Intentar leer texto directamente
-    try:
-        reader = PdfReader(pdf_path)
-        for page in reader.pages:
-            text += page.extract_text() or ""
-    except Exception as e:
-        print(f"Error al leer PDF directamente: {e}")
+    with fitz.open(pdf_path) as doc:
+        for page in doc:
+            # Intentar obtener texto directo
+            page_text = page.get_text("text").strip()
+            if not page_text:  # Si no hay texto, usar OCR
+                pix = page.get_pixmap(dpi=300)
+                img = Image.open(io.BytesIO(pix.tobytes(output="png")))
+                img = preprocess_image(img)
+                page_text = pytesseract.image_to_string(img, config="--psm 3").strip()
 
-    # 2️⃣ Si el texto directo es insuficiente, aplicar OCR
-    if not text or len(text.strip()) < 100:
-        try:
-            images = convert_from_path(pdf_path, dpi=300)
-            for img in images:
-                text += pytesseract.image_to_string(img, lang="spa")
-        except Exception as e:
-            print(f"Error al aplicar OCR: {e}")
+            extracted_text.append(page_text)
 
-    return text
+    return "\n".join(extracted_text)
 
 
-# ========= SECCIONES DE LA HOJA DE VIDA ==========
-def extract_profile_section_with_ocr(pdf_path):
+# ============================================================
+# 🔹 LIMPIEZA DE TEXTO EXTRAÍDO
+# ============================================================
+def extract_cleaned_lines(text):
     """
-    Extrae la sección 'Perfil' del PDF.
+    Limpia el texto extraído eliminando líneas vacías, errores de OCR,
+    números de página y caracteres no alfanuméricos.
     """
-    text = extract_text_with_ocr(pdf_path)
-    if not text.strip():
-        return ""
-
-    start_keyword = "Perfil"
-    end_keywords = ["Asistencia a eventos", "Actualización profesional"]
-
-    start_idx = text.lower().find(start_keyword.lower())
-    if start_idx == -1:
-        return ""
-
-    end_idx = len(text)
-    for keyword in end_keywords:
-        idx = text.lower().find(keyword.lower(), start_idx)
-        if idx != -1:
-            end_idx = min(end_idx, idx)
-
-    section = text[start_idx:end_idx].strip()
-    section = re.sub(r"[^\w\s.,;:()\-]", "", section)
-    section = re.sub(r"\s+", " ", section)
-
-    return section
-
-
-def extract_experience_section_with_ocr(pdf_path):
-    """
-    Extrae la sección 'EXPERIENCIA EN ANEIAP' del PDF.
-    """
-    text = extract_text_with_ocr(pdf_path)
-    start_keyword = "EXPERIENCIA EN ANEIAP"
-    end_keywords = ["EVENTOS ORGANIZADOS", "Reconocimientos individuales", "Reconocimientos"]
-
-    start_idx = text.lower().find(start_keyword.lower())
-    if start_idx == -1:
-        return ""
-
-    end_idx = len(text)
-    for keyword in end_keywords:
-        idx = text.lower().find(keyword.lower(), start_idx)
-        if idx != -1:
-            end_idx = min(end_idx, idx)
-
-    section = text[start_idx:end_idx].strip()
-    exclude_lines = [
-        "a nivel capitular", "a nivel nacional", "a nivel seccional",
-        "reconocimientos individuales", "reconocimientos grupales",
-        "trabajo capitular", "trabajo nacional", "nacional 2024"
-    ]
-
-    lines = section.split("\n")
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        line = re.sub(r"[^\w\s]", "", line)
-        normalized = re.sub(r"\s+", " ", line).lower()
-        if normalized and normalized not in exclude_lines:
-            cleaned.append(line)
-
-    return "\n".join(cleaned)
-
-
-def extract_event_section_with_ocr(pdf_path):
-    """
-    Extrae la sección 'EVENTOS ORGANIZADOS' del PDF.
-    """
-    text = extract_text_with_ocr(pdf_path)
-    start_keyword = "EVENTOS ORGANIZADOS"
-    end_keywords = ["EXPERIENCIA LABORAL", "FIRMA"]
-
-    start_idx = text.lower().find(start_keyword.lower())
-    if start_idx == -1:
-        return ""
-
-    end_idx = len(text)
-    for keyword in end_keywords:
-        idx = text.lower().find(keyword.lower(), start_idx)
-        if idx != -1:
-            end_idx = min(end_idx, idx)
-
-    section = text[start_idx:end_idx].strip()
-    exclude_lines = [
-        "a nivel capitular", "a nivel nacional", "a nivel seccional",
-        "reconocimientos individuales", "reconocimientos grupales"
-    ]
-
-    lines = section.split("\n")
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        line = re.sub(r"[^\w\s]", "", line)
-        normalized = re.sub(r"\s+", " ", line).lower()
-        if normalized and normalized not in exclude_lines:
-            cleaned.append(line)
-
-    return "\n".join(cleaned)
-
-
-def extract_attendance_section_with_ocr(pdf_path):
-    """
-    Extrae la sección 'ASISTENCIA A EVENTOS ANEIAP' del PDF.
-    """
-    text = extract_text_with_ocr(pdf_path)
-    start_keyword = "ASISTENCIA A EVENTOS ANEIAP"
-    end_keywords = ["ACTUALIZACIÓN PROFESIONAL", "EXPERIENCIA EN ANEIAP", "EVENTOS ORGANIZADOS"]
-
-    start_idx = text.lower().find(start_keyword.lower())
-    if start_idx == -1:
-        return ""
-
-    end_idx = len(text)
-    for keyword in end_keywords:
-        idx = text.lower().find(keyword.lower(), start_idx)
-        if idx != -1:
-            end_idx = min(end_idx, idx)
-
-    section = text[start_idx:end_idx].strip()
-    exclude_lines = ["a nivel capitular", "a nivel nacional", "a nivel seccional"]
-
-    lines = section.split("\n")
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        line = re.sub(r"[^\w\s]", "", line)
-        normalized = re.sub(r"\s+", " ", line).lower()
-        if normalized and normalized not in exclude_lines:
-            cleaned.append(line)
-
-    return "\n".join(cleaned)
-
-
-# ========= ANÁLISIS DE PRESENTACIÓN ==========
-def evaluate_cv_presentation(pdf_path):
-    """
-    Evalúa la presentación general de la hoja de vida.
-    """
-    text = extract_text_with_ocr(pdf_path)
-    if not text:
-        return {"clean_text": "", "message": "No se pudo extraer texto del PDF"}
+    if isinstance(text, list):
+        text = "\n".join(text)
 
     lines = text.split("\n")
-    cleaned = []
+    cleaned_lines = []
+
     for line in lines:
         line = line.strip()
-        line = re.sub(r"[^\w\s.,;:!?-]", "", line)
-        line = re.sub(r"\s+", " ", line)
-        if line:
-            cleaned.append(line)
+        if not line or not any(char.isalnum() for char in line):
+            continue
+        if re.fullmatch(r"\d+", line):
+            continue
+        if len(line) < 3:
+            continue
+        cleaned_lines.append(line)
 
-    if not cleaned:
-        return {"clean_text": "", "message": "El documento no contiene texto procesable"}
-
-    return {"clean_text": "\n".join(cleaned), "message": "Texto procesado correctamente"}
+    return cleaned_lines
 
 
-# ========= CÁLCULOS DE INDICADORES ==========
-def calculate_all_indicators(lines, position_indicators):
+# ============================================================
+# 🔹 CÁLCULO DE SIMILITUD ENTRE TEXTOS
+# ============================================================
+def calculate_similarity(text1, text2):
     """
-    Calcula porcentajes de coincidencia por indicador.
+    Calcula la similitud entre dos textos con TF-IDF + Cosine Similarity.
+    Retorna el porcentaje de similitud (0 a 100).
     """
-    total_lines = len(lines)
-    if total_lines == 0:
-        return {i: 0 for i in position_indicators}
+    if not isinstance(text1, str) or not isinstance(text2, str):
+        return 0
 
-    results = {}
+    def clean_text(text):
+        text = re.sub(r"[^\w\s]", "", text)
+        text = re.sub(r"\s+", " ", text).strip().lower()
+        return text
+
+    text1, text2 = clean_text(text1), clean_text(text2)
+    if not text1 or not text2:
+        return 0
+
+    try:
+        vectorizer = TfidfVectorizer(ngram_range=(1, 2), stop_words="spanish")
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        return round(similarity * 100, 2)
+    except Exception:
+        return 0
+
+
+# ============================================================
+# 🔹 CÁLCULO DE COINCIDENCIA POR PALABRAS CLAVE
+# ============================================================
+def calculate_keyword_match_percentage(candidate_text, position_indicators, functions_text, profile_text):
+    """
+    Calcula coincidencia por palabras clave para 'Funciones' y 'Perfil del cargo'.
+    Retorna: (porcentaje_funciones, porcentaje_perfil)
+    """
+    if not candidate_text or not isinstance(candidate_text, str):
+        return (0.0, 0.0)
+
+    if not position_indicators or not isinstance(position_indicators, dict):
+        return (0.0, 0.0)
+
+    function_keywords = []
+    profile_keywords = []
+
     for indicator, keywords in position_indicators.items():
-        matches = sum(any(k.lower() in line.lower() for k in keywords) for line in lines)
-        results[indicator] = (matches / total_lines) * 100
-    return results
+        if functions_text and indicator.lower() in functions_text.lower():
+            function_keywords.extend(keywords)
+        if profile_text and indicator.lower() in profile_text.lower():
+            profile_keywords.extend(keywords)
+
+    def keyword_match_score(keywords, text):
+        if not keywords:
+            return 0.0
+        found = sum(1 for kw in keywords if kw.lower() in text.lower())
+        return round((found / len(keywords)) * 100, 2)
+
+    func_match = keyword_match_score(function_keywords, candidate_text)
+    profile_match = keyword_match_score(profile_keywords, candidate_text)
+
+    return func_match, profile_match
 
 
-def calculate_indicators_for_report(lines, position_indicators):
+# ============================================================
+# 🔹 PORTADA DEL REPORTE
+# ============================================================
+def draw_full_page_cover(canvas, portada_path, candidate_name, position, chapter):
     """
-    Calcula porcentajes y número de coincidencias por indicador.
+    Dibuja una portada con imagen a página completa y texto centrado.
     """
-    total_lines = len(lines)
-    if total_lines == 0:
-        return {i: {"percentage": 0, "relevant_lines": 0} for i in position_indicators}
+    page_width, page_height = letter
+    img = ImageReader(portada_path)
+    img_width, img_height = img.getSize()
+    scale = max(page_width / img_width, page_height / img_height)
+    new_w, new_h = img_width * scale, img_height * scale
+    x_offset = (page_width - new_w) / 2
+    y_offset = (page_height - new_h) / 2
+    canvas.drawImage(portada_path, x_offset, y_offset, width=new_w, height=new_h)
 
-    results = {}
-    for indicator, keywords in position_indicators.items():
-        matches = sum(any(k.lower() in line.lower() for k in keywords) for line in lines)
-        percentage = (matches / total_lines) * 100
-        results[indicator] = {"percentage": percentage, "relevant_lines": matches}
+    canvas.setFont("Helvetica-Bold", 36)
+    canvas.setFillColor(colors.black)
+    lines = [
+        "REPORTE DE ANÁLISIS",
+        candidate_name.upper(),
+        f"CARGO: {position.upper()}",
+        f"CAPÍTULO: {chapter.upper()}",
+    ]
+    total_height = len(lines) * 40
+    start_y = (page_height + total_height) / 2 - 100
+    for i, line in enumerate(lines):
+        line_width = canvas.stringWidth(line, "Helvetica-Bold", 36)
+        x = (page_width - line_width) / 2
+        y = start_y - (i * 45)
+        canvas.drawString(x, y, line)
 
-    return results
 
-
+# ============================================================
+# 🔹 FONDO DE PÁGINAS
+# ============================================================
+def add_background(canvas, background_path):
+    """
+    Dibuja una imagen de fondo en cada página del PDF.
+    """
+    canvas.saveState()
+    canvas.drawImage(background_path, 0, 0, width=letter[0], height=letter[1])
+    canvas.restoreState()
