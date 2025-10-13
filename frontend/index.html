@@ -1,1 +1,40 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>EvalHV ANEIAP</title></head>
+<body>
+  <h1>Evaluador HV ANEIAP</h1>
+  <input id="name" placeholder="Nombre completo"><br>
+  <select id="chapter"> ... opciones ... </select><br>
+  <select id="position"> ... opciones ... </select><br>
+  <input type="file" id="pdffile" accept="application/pdf"><br>
+  <button id="send">Enviar</button>
+  <script>
+    const API = "https://tu-backend.onrender.com/analyze"; // URL del servicio
+    document.getElementById('send').onclick = async () => {
+      const file = document.getElementById('pdffile').files[0];
+      if(!file) return alert("Sube PDF");
+      const fd = new FormData();
+      fd.append("candidate_name", document.getElementById('name').value);
+      fd.append("chapter", document.getElementById('chapter').value);
+      fd.append("position", document.getElementById('position').value);
+      fd.append("file", file);
+
+      const resp = await fetch(API, { method: 'POST', body: fd });
+      if(!resp.ok) {
+        const err = await resp.json();
+        return alert("Error: " + (err.error || resp.statusText));
+      }
+      // si devuelve PDF directamente
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "reporte.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+  </script>
+</body>
+</html>
 
