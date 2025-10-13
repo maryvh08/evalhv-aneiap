@@ -50,6 +50,23 @@ from cv_analysis import (
 
 app = Flask(__name__)
 
+# ============================================================
+# IMPORTS DE MÓDULOS INTERNOS (DESDE app/utils/)
+# ============================================================
+
+from utils.ocr import extract_text_with_ocr
+from utils.extractors import (
+    extract_profile_section_with_ocr,
+    extract_experience_section_with_ocr,
+    extract_event_section_with_ocr,
+    extract_attendance_section_with_ocr
+)
+from utils.indicators import calculate_all_indicators, calculate_indicators_for_report
+from utils.report_generator import generate_pdf_report
+from utils.evaluation import evaluate_cv_presentation
+from utils.analysis import generate_extended_analysis
+from utils.helpers import load_json, clean_text, extract_candidate_data
+
 # Cargar JSONs
 with open("indicators.json", encoding="utf-8") as f:
     indicators = json.load(f)
