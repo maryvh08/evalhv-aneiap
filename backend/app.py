@@ -41,10 +41,11 @@ from utils import (
     draw_full_page_cover,
     add_background
 )
-from utils.simplified_analysis import (
+from cv_analysis import (
     extract_experience_section_with_ocr,
-    calculate_all_indicators,
+    extract_profile_section_with_ocr,
     calculate_indicators_for_report,
+    evaluate_cv_presentation
 )
 
 app = Flask(__name__)
