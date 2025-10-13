@@ -1,9 +1,38 @@
-from flask import Flask, request, jsonify
+from PIL import Image
+import os
+import google.generativeai as genai
+import base64
 import fitz
-import json
+import requests
+import numpy as np
 import spacy
+import pandas as pd
+from collections import Counter
+from io import BytesIO
+from textstat import textstat
+import re
+import json
+import pytesseract
+from spellchecker import SpellChecker
+from textblob import TextBlob
+from reportlab.pdfgen import canvas
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageTemplate, Frame, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import Image as RLImage  
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus.flowables import PageBreak
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from PIL import Image, ImageFilter, ImageOps, ImageEnhance
+from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 
