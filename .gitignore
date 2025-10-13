@@ -1,0 +1,43 @@
+# --- PYTHON ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.log
+
+# --- ENTORNOS VIRTUALES ---
+.env
+.venv
+env/
+venv/
+ENV/
+
+# --- ARCHIVOS TEMPORALES ---
+temp/
+outputs/
+*.tmp
+*.bak
+
+# --- SISTEMA ---
+.DS_Store
+Thumbs.db
+
+# --- JUPYTER NOTEBOOKS ---
+.ipynb_checkpoints/
+
+# --- DEPLOY ---
+*.sqlite3
+.idea/
+.vscode/
+*.local
+*.config
+*.db
+
+# --- REPORTES GENERADOS ---
+outputs/*.pdf
+reports/*.pdf
+
+# --- MISC ---
+__MACOSX/
