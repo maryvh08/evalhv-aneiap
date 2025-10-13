@@ -1,1 +1,15 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pymupdf  # fitz
+pillow
+pytesseract
+spacy
+scikit-learn
+reportlab
+textstat
+pyspellchecker
+textblob
+numpy
+pandas
 
